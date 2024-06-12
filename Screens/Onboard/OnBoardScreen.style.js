@@ -11,7 +11,7 @@ const styles = StyleSheet.create({
         width: '100%'
     },
     secondView: {
-        marginTop: 18,
+        marginTop: 1,
         justifyContent: 'center',
         alignItems: 'center',
         marginHorizontal: 25
@@ -29,7 +29,7 @@ const styles = StyleSheet.create({
         fontSize: 13,
     },
     btn: {
-        marginTop: 40,
+        marginTop: 20,
         alignSelf: 'flex-end',
         marginRight: 25
     },

@@ -1,167 +1,110 @@
-/* eslint-disable prettier/prettier */
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Image,
-  NativeModules,
-  NativeEventEmitter,
-  ScrollView,
-  Modal,
-} from 'react-native';
-import React, {useEffect, useState} from 'react';
+import React, { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, Image, FlatList, PermissionsAndroid, Platform } from 'react-native';
 import styles from './DevicesListScreen.style';
 import Images from '../Images/Images';
-import BleManager from 'react-native-ble-manager';
-const BleManagerModule = NativeModules.BleManager;
-const bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
+import BLEPeripheral from '../BLEPeripheral.js';
+import { PERMISSIONS, RESULTS, check, request } from 'react-native-permissions';
+
+const serviceUUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const characteristicUUID = '6e400002-b5a3-f393-e0a9-e50E24dcca9e';
+
 const DevicesListScreen = () => {
-  const [isScanning, setIsScanning] = useState(false);
   const [scannedDevices, setScannedDevices] = useState([]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [checkType, setCheckType] = useState(0);
-  const peripherals = new Map();
-  const [connectedDevices, setConnectedDevices] = useState([]);
-  const [isBluetoothEnabled, setIsBluetoothEnabled] = useState(null);
   const [scanning, setScanning] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [type, setType] = useState(0);
-  const [getDeviceId, setDeviceID] = useState(null);
-  const [getDeviceName, setDeviceName] = useState(null);
+  const [characteristicValue, setCharacteristicValue] = useState(new Uint8Array([0x00]));
+const [getAddress, setAddress] = useState(null)
   useEffect(() => {
-    BleManager.enableBluetooth()
-      .then(() => {
-        // Success code
-        console.log('The bluetooth is already enabled or the user confirm');
-      })
-      .catch(error => {
-        // Failure code
-        console.log('The user refuse to enable bluetooth');
-      });
-    // initializeBleManager();
-    startScan();
-    const handleDiscoverPeripheral = peripheral => {
-      peripherals.set(peripheral.id, peripheral);
-      setScannedDevices(Array.from(peripherals.values()));
-    };
-
-    const handleStopScan = () => {
-      console.log('Scan stopped');
-      setIsScanning(false);
-    };
-
-    bleManagerEmitter.addListener(
-      'BleManagerDiscoverPeripheral',
-      handleDiscoverPeripheral,
-    );
-    bleManagerEmitter.addListener('BleManagerStopScan', handleStopScan);
-    BleManager.start({showAlert: false}).then(() => {
-      console.log('BleManager initialized');
-      BleManager.checkState();
+    requestBluetoothPermissions();
+    BLEPeripheral.getBluetoothAddress((error, address) => {
+      if (error) {
+        console.error('Error getting Bluetooth address:', error);
+      } else {
+        console.log('Bluetooth address:', address);
+        // Do something with the address...
+      }
     });
-    // Check Bluetooth status periodically
-    const intervalId = setInterval(() => {
-      BleManager.checkState();
-      // console.log('check---');
-    }, 3000); // Check every 5 seconds
-    return () => {
-      clearInterval(intervalId);
-      bleManagerEmitter.removeAllListeners('BleManagerDiscoverPeripheral');
-      bleManagerEmitter.removeAllListeners('BleManagerStopScan');
-      bleManagerEmitter.removeAllListeners(
-        'BleManagerDidUpdateState',
-        handleBluetoothStateChange,
-      );
+   
+    const initializeBLE = async () => {
+      try {
+        await BLEPeripheral.initialize();
+        console.log('BLE initialized');
+        await BLEPeripheral.setName('CAT-S53');
+        console.log('Device name set');
+        await BLEPeripheral.addService(serviceUUID, true);
+        console.log('Service added');
+        await BLEPeripheral.addCharacteristicToService(
+          serviceUUID,
+          characteristicUUID,
+          16 | 1, // properties: read and write, notify (0x10 | 0x01)
+          8       // permissions: read and write (0x08)
+        );
+        console.log('Characteristic added');
+       
+        BLEPeripheral.startScanning()
+          .then(res => {
+            console.log(res)
+          }).catch(error => {
+            console.log(error)
+          })
+      } catch (error) {
+        console.error('Initialization error:', error);
+      }
     };
+
+    initializeBLE();
   }, []);
-  const handleBluetoothStateChange = state => {
-    console.log('Bluetooth state changed:', state);
-    if (state === 'on') {
-      setIsBluetoothEnabled(true);
-      startScanWithDelay(); // Start scanning with a delay
-    } else {
-      setIsBluetoothEnabled(false);
-      setScanning(false);
-      setDevices([]);
-    }
-  };
-  const startScan = () => {
-    // setType(1);
-    console.log('scanning');
-    if (!isScanning) {
-      console.log(isScanning);
-      setScannedDevices([]);
-      setIsScanning(true);
-      BleManager.scan([], 5, true).catch(err => {
-        console.error('Scan error:', err);
-        setIsScanning(false);
-      });
-    }
-  };
-  const connectToDevice = async device => {
-    console.log('check---id', device.id);
-    setModalVisible(true);
+  const requestBluetoothPermissions = async () => {
     try {
-      await BleManager.connect(device.id);
-      console.log('Connected to', device.id);
-      await AsyncStorage.setItem('address', device.id);
-      // setScannedDevices(prevDevices =>
-      //   prevDevices.filter(d => d.id !== device.id),
-      // );
-      handleGetConnectedDevices();
-      setDeviceID(device.id), setDeviceName(device.name);
-      //   navigation.navigate('connectedDevice', {
-      //     device: device.id,
-      //     name: device.name,
-      //     connection: true,
-      //     True: 0,
-      //   });
-    } catch (error) {
-      console.error('Connection error', error);
-      Alert.alert('Connection error', error.message);
-    } finally {
-      setModalVisible(false);
+      // Check and request Bluetooth permissions
+      if (Platform.OS === 'android') {
+        const permissions = [
+          PERMISSIONS.ANDROID.BLUETOOTH_CONNECT,
+          PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION,
+          PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION,
+        ];
+  
+        for (const permission of permissions) {
+          const result = await check(permission);
+          if (result !== RESULTS.GRANTED) {
+            const requestResult = await request(permission);
+            if (requestResult !== RESULTS.GRANTED) {
+              console.log(`Permission ${permission} denied`);
+              // Handle the case where permissions are not granted
+            } else {
+              console.log(`Permission ${permission} granted`);
+            }
+          } else {
+            console.log(`Permission ${permission} already granted`);
+          }
+        }
+        console.log('All permissions handled');
+      }
+    } catch (err) {
+      console.error('Error requesting Bluetooth permissions:', err);
     }
   };
-  const updateDeviceConnectionStatus = (id, connected) => {
-    setScannedDevices(prevDevices =>
-      prevDevices.map(device =>
-        device.id === id ? {...device, connected} : device,
-      ),
-    );
-  };
-  const handleGetConnectedDevices = async () => {
+  // Function to handle read requests
+  const handleReadRequest = async (deviceAddress, requestId) => {
     try {
-      const connectedPeripherals = await BleManager.getConnectedPeripherals([]);
-      setConnectedDevices(connectedPeripherals);
-      console.log('Connected devices:', connectedPeripherals);
-      connectedPeripherals.forEach(device =>
-        updateDeviceConnectionStatus(device.id, true),
-      );
+      // Call the method to respond to the read request
+      await BLEPeripheral.respondToReadRequest(deviceAddress, requestId, characteristicValue);
+      console.log('Read request responded successfully');
     } catch (error) {
-      console.error('Error getting connected devices:', error);
+      console.error('Error responding to read request:', error);
     }
   };
-  const pairedDevice = async device => {
-    setModalVisible(true);
+
+  // Function to handle write requests
+  const handleWriteRequest = async (deviceAddress, requestId, status, value) => {
     try {
-      await BleManager.connect(device.id);
-      console.log('Connected to paired device', device.name);
-      await AsyncStorage.setItem('address', device.id);
-      setDeviceID(device.id), setDeviceName(device.name);
-      //   navigation.navigate('connectedDevice', {
-      //     device: device.id,
-      //     name: device.name,
-      //     connection: true,
-      //     True: 0,
-      //   });
+      // Call the method to respond to the write request
+      await BLEPeripheral.respondToWriteRequest(deviceAddress, requestId, status, value);
+      console.log('Write request responded successfully');
     } catch (error) {
-      console.error('Connection error', error);
-      Alert.alert('Connection error', error.message);
-    } finally {
-      setModalVisible(false);
+      console.error('Error responding to write request:', error);
     }
   };
+
   return (
     <View style={styles.container}>
       <View style={styles.HeaderView}>
@@ -170,41 +113,20 @@ const DevicesListScreen = () => {
           <Image source={Images.re_scan} />
         </TouchableOpacity>
       </View>
-      {scanning == false ? (
-        <ScrollView
-          style={{
-            marginTop: 15,
-            marginBottom: 15,
-            backgroundColor: '#fff',
-            // height: 250,
-          }}>
-          {scannedDevices.map((device, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.devices}
-              onPress={() => pairedDevice(device)}>
-              <Text>{device.name ? device.name : 'Unnamed Device'}</Text>
-              <TouchableOpacity
-                onPress={() => connectToDevice(device)}
-                style={styles.connectBTN}>
-                {/* <Text>Connect</Text> */}
-                <Text>Connect</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      ) : (
-        <Modal
-          style={styles.modalView}
-          animationType="none"
-          transparent={true}
-          visible={scanning}
-          onRequestClose={() => setIsScanning(false)}>
-          <View style={styles.modalContain}>
-            <Image source={require('../Assets/gif.png')} />
-          </View>
-        </Modal>
-      )}
+      <View
+        style={{
+          marginTop: 15,
+          marginBottom: 15,
+          backgroundColor: '#fff',
+        }}>
+        <FlatList
+          data={scannedDevices}
+          keyExtractor={(item) => item.deviceAddress}
+          renderItem={({ item }) => (
+            console.log('item--', item)
+          )}
+        />
+      </View>
     </View>
   );
 };
