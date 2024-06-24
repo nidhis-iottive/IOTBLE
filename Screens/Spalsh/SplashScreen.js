@@ -6,7 +6,7 @@ import Images from '../Images/Images'
 const SplashScreen = ({ navigation }) => {
     useEffect(() => {
         const timer = setTimeout(() => {
-          navigation.replace('OnBoardScreen');
+          navigation.replace('DevicesListScreen');
         }, 3000); // 3 seconds
     
         return () => clearTimeout(timer); // Cleanup the timer on component unmount
